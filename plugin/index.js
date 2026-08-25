@@ -34,6 +34,11 @@
  * No dependencies, no build step — source is the artifact.
  */
 
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { dirname, join as joinPath } from 'node:path'
+import { ModelHubPoolAdapter, POOL_ROUTE, streamAttempt } from './pool-adapter.js'
+import { normalizeChannel, normalizePoolModel, resolveRequest, orderChannels, STRATEGIES as POOL_STRATEGIES } from './pool-core.js'
+
 /* ── ⚙️ optional overrides directory (absolute path). Keep '' to disable. ──
  * Drop *.json files there: {"kind":"provider",…} defines a provider,
  * anything else with provider+id defines a model. Re-run install to apply. */
@@ -379,6 +384,71 @@ export function apply(ctx) {
   }
   const tools = ctx.get('tools')
 
+  /* ══════════ Model Pool / Gateway subsystem ══════════ */
+
+  // Pool config persists OUTSIDE the package directory (survives upgrades);
+  // API keys live ONLY in the DSH credentials service behind secretRefs.
+  const poolStore = {
+    path: undefined,
+    cache: undefined,
+    async ensure() {
+      if (this.path) return this.path
+      const doc = await settings.prepareDocument()
+      if (!doc) throw new Error('[model-hub] settings provider is not file-backed; pool persistence unavailable')
+      const dir = joinPath(dirname(doc), 'model-hub')
+      mkdirSync(dir, { recursive: true })
+      this.path = joinPath(dir, 'pool.json')
+      return this.path
+    },
+    load() {
+      if (this.cache) return this.cache
+      try {
+        this.cache = JSON.parse(readFileSync(this.path, 'utf8'))
+      } catch {
+        this.cache = { channels: [], models: [], pools: [], strategy: 'priority' }
+      }
+      for (const key of ['channels', 'models', 'pools']) if (!Array.isArray(this.cache[key])) this.cache[key] = []
+      if (typeof this.cache.strategy !== 'string') this.cache.strategy = 'priority'
+      return this.cache
+    },
+    save(next) {
+      this.cache = next
+      mkdirSync(dirname(this.path), { recursive: true })
+      writeFileSync(this.path, JSON.stringify(next, null, 2))
+    },
+  }
+
+  let poolAdapter = null
+  // apply() is synchronous; pool init continues asynchronously and registers
+  // the routing adapter as soon as the config file location is known.
+  poolStore.ensure()
+    .then(() => {
+      poolStore.load()
+      const llm = ctx.get('llm')
+      if (llm === undefined || typeof llm.registerAdapter !== 'function') {
+        console.error('[model-hub] llm service unavailable — Model Pool routing disabled (config tools still work)')
+        return
+      }
+      poolAdapter = new ModelHubPoolAdapter({
+        store: { get: () => poolStore.load() },
+        resolveSecret: async (ref) => {
+          const credentials = ctx.get('credentials')
+          if (credentials === undefined) return undefined
+          const resolved = await credentials.resolve(ref)
+          return resolved && typeof resolved.value === 'string' ? resolved.value : undefined
+        },
+        log: (msg) => console.log(msg),
+      })
+      ctx.effect(llm.registerAdapter([POOL_ROUTE], poolAdapter))
+      console.log('[model-hub] model-pool route registered (' + POOL_ROUTE + ')')
+    })
+    .catch((error) => console.error('[model-hub] pool init failed: ' + (error && error.message ? error.message : String(error))))
+
+  function maskKeyHint(refName) {
+    return `${refName} (value stored in DSH credential store; shown only as configured/not configured)`
+  }
+
+
   /* ---- shared readers ---- */
   async function snapshot() {
     const value = settings.get('llm-pi-ai')
@@ -653,6 +723,181 @@ export function apply(ctx) {
         }))
       const lines = filtered.map((m) => `${m.free ? '🆓' : '  '} ${m.id}  ·  ${m.name}  ·  ctx ${m.context}`)
       return { ok: true, count: filtered.length, text: lines.length ? lines.join('\n') : 'no matches', candidates: filtered }
+    },
+  })
+
+  /* ---- Model Pool tools ---- */
+  registerTool({
+    name: 'model_pool_status',
+    description:
+      '模型池状态：Provider / Channel / 模型 / 可用性 / 用量计数 / 最近错误（绝不显示密钥明文）。 | Model pool status: providers/channels/models availability, usage counters, last errors. Never shows key values.',
+    parameters: {},
+    output: { schema: { type: 'object', additionalProperties: true }, render(_a, v) { return [{ type: 'text', text: String(v.text || '') }] } },
+    async execute() {
+      await poolStore.ensure().catch(() => {})
+      const cfg = poolStore.load()
+      const lines = []
+      lines.push(`strategy: ${cfg.strategy}   route: ${POOL_ROUTE}   channels: ${cfg.channels.length}   models: ${cfg.models.length}`)
+      for (const ch of cfg.channels) {
+        const st = (poolAdapter && poolAdapter.state[ch.id]) || {}
+        const keyOk = await keyConfigured(ch.secretRef)
+        const quota = ch.expiresAt ? `expiresAt ${ch.expiresAt}` : 'quota unknown'
+        lines.push(`${mark(keyOk)} ${ch.id}  [${ch.enabled ? 'enabled' : 'DISABLED'}] ${ch.baseUrl}`)
+        lines.push(`   secret=${ch.secretRef} priority=${ch.priority ?? 0} weight=${ch.weight ?? 1} ${quota}`)
+        lines.push(`   req=${st.requestCount || 0} err=${st.errorCount || 0} in=${st.inputTokens || 0} out=${st.outputTokens || 0}${st.lastError ? ` lastError=${st.lastError.kind}: ${String(st.lastError.message).slice(0, 120)}` : ''}`)
+        if (Array.isArray(ch.models) && ch.models.length > 0) lines.push(`   models: ${ch.models.join(', ')}`)
+      }
+      for (const m of cfg.models) {
+        const chans = cfg.channels.filter((c) => !Array.isArray(c.models) || c.models.length === 0 || c.models.includes(m.id))
+        lines.push(`· ${m.displayName} <${m.id}> caps=${(m.capabilities || []).join('+')} channels=${chans.length}`)
+        for (const al of m.aliases || []) lines.push(`   alias: ${al}`)
+      }
+      for (const p of cfg.pools) lines.push(`pool ${p.id}: ${(p.models || []).join(', ')} [${p.strategy}]`)
+      if (lines.length <= 1) lines.push('池为空 / pool is empty — use model_pool_add_channel')
+      return { ok: true, text: lines.join('\n') }
+    },
+  })
+
+  registerTool({
+    name: 'model_pool_list',
+    description:
+      '列出模型池中可用的模型与别名（去重后），以及每个模型可用的 Channel 数。 | List deduplicated pool models/aliases with available channel counts.',
+    parameters: {},
+    output: { schema: { type: 'object', additionalProperties: true }, render(_a, v) { return [{ type: 'text', text: String(v.text || '') }] } },
+    async execute() {
+      await poolStore.ensure().catch(() => {})
+      const cfg = poolStore.load()
+      const lines = []
+      for (const m of cfg.models) {
+        const chans = cfg.channels.filter((c) => c.enabled && (!Array.isArray(c.models) || c.models.length === 0 || c.models.includes(m.id)))
+        lines.push(`${m.displayName} <${m.id}>  channels=${chans.length}${(m.aliases || []).length ? `  aliases: ${m.aliases.join(', ')}` : ''}`)
+      }
+      return { ok: true, text: lines.length ? lines.join('\n') : '(empty)' }
+    },
+  })
+
+  registerTool({
+    name: 'model_pool_add_channel',
+    description:
+      '向模型池添加一个 Channel（同一 Provider 的一个独立 API Key）。参数：id、baseUrl 必填；providerId、secretRef、apiKey（提供则写入 DSH 凭据服务，不会记录到日志）、models（逗号分隔，留空=全部）、priority、weight、expiresAt、timeoutMs。 | Add a channel (one independent API key for a provider). Args: id/baseUrl required; apiKey (if given) goes into the DSH credential store and is never logged; models comma-separated; empty = all models.',
+    parameters: {
+      id: { type: 'string', required: true },
+      baseUrl: { type: 'string', required: true },
+      providerId: { type: 'string' },
+      secretRef: { type: 'string' },
+      apiKey: { type: 'string' },
+      models: { type: 'string' },
+      priority: { type: 'number' },
+      weight: { type: 'number' },
+      expiresAt: { type: 'string' },
+      timeoutMs: { type: 'number' },
+    },
+    output: { schema: { type: 'object', additionalProperties: true }, render(_a, v) { return [{ type: 'text', text: String(v.text || '') }] } },
+    async execute(args) {
+      try {
+        const raw = {
+          id: args.id,
+          providerId: args.providerId || 'custom',
+          baseUrl: args.baseUrl,
+          secretRef: args.secretRef,
+          priority: Number.isInteger(args.priority) ? args.priority : undefined,
+          weight: Number.isInteger(args.weight) ? args.weight : undefined,
+          models: typeof args.models === 'string' && args.models.trim() ? args.models.split(',').map((x) => x.trim()).filter(Boolean) : [],
+          expiresAt: args.expiresAt,
+          timeoutMs: Number.isInteger(args.timeoutMs) ? args.timeoutMs : undefined,
+        }
+        const ch = normalizeChannel(raw)
+        const cfg = poolStore.load()
+        if (cfg.channels.some((c) => c.id === ch.id)) return { ok: false, text: `channel "${ch.id}" 已存在 / already exists` }
+        if (args.apiKey && typeof args.apiKey === 'string' && args.apiKey.length > 0) {
+          const credentials = ctx.get('credentials')
+          if (credentials === undefined) return { ok: false, text: 'credentials 服务未挂载，无法保存密钥 / credential service not mounted' }
+          await credentials.set(ch.secretRef, args.apiKey)
+        }
+        cfg.channels.push(ch)
+        poolStore.save(cfg)
+        return { ok: true, text: `channel added: ${ch.id} → ${ch.baseUrl}; secret=${maskKeyHint(ch.secretRef)}${args.apiKey ? ' (key stored just now)' : ' (store the key via Settings → Models or credentials)'}` }
+      } catch (error) {
+        return { ok: false, text: String(error && error.message) }
+      }
+    },
+  })
+
+  registerTool({
+    name: 'model_pool_remove_channel',
+    description:
+      '从模型池移除一个 Channel。只删除本插件创建的 channel 定义；其他 channel 与已存密钥引用不受影响。 | Remove one channel definition created by this plugin; other channels and stored credential refs are untouched.',
+    parameters: { id: { type: 'string', required: true } },
+    output: { schema: { type: 'object', additionalProperties: true }, render(_a, v) { return [{ type: 'text', text: String(v.text || '') }] } },
+    async execute(args) {
+      await poolStore.ensure().catch(() => {})
+      const cfg = poolStore.load()
+      const idx = cfg.channels.findIndex((c) => c.id === args.id)
+      if (idx < 0) return { ok: false, text: `channel "${args.id}" 不存在 / not found` }
+      const [gone] = cfg.channels.splice(idx, 1)
+      for (const p of cfg.pools) p.models = (p.models || []).filter(() => true)
+      poolStore.save(cfg)
+      return { ok: true, text: `removed channel "${gone.id}". 其他 channel 不受影响 / other channels untouched. 密钥如需彻底删除请用凭据服务移除引用 ${gone.secretRef}` }
+    },
+  })
+
+  registerTool({
+    name: 'model_pool_test',
+    description:
+      '对指定 Channel 发起一次真实小请求（"Reply with OK"），报告 HTTP 结果与延迟；不显示密钥。 | Fire one tiny real request at a channel; reports HTTP outcome and latency. Never shows the key.',
+    parameters: { id: { type: 'string', required: true }, model: { type: 'string' }, timeoutMs: { type: 'number' } },
+    output: { schema: { type: 'object', additionalProperties: true }, render(_a, v) { return [{ type: 'text', text: String(v.text || '') }] } },
+    async execute(args) {
+      await poolStore.ensure().catch(() => {})
+      const cfg = poolStore.load()
+      const ch = cfg.channels.find((c) => c.id === args.id)
+      if (!ch) return { ok: false, text: `channel "${args.id}" 不存在 / not found` }
+      const credentials = ctx.get('credentials')
+      let key
+      try { const r = await credentials.resolve(ch.secretRef); key = r && r.value } catch {}
+      if (!key) return { ok: false, text: `密钥未配置：${ch.secretRef}。请前往 设置 → 模型 或使用 model_pool_add_channel 提供 apiKey。/ key not configured` }
+      const modelId = (typeof args.model === 'string' && args.model) || (Array.isArray(ch.models) && ch.models[0]) || 'gpt-4o-mini'
+      const started = Date.now()
+      try {
+        let text = ''
+        for await (const chunk of streamAttempt({
+          baseUrl: ch.baseUrl,
+          apiKey: key,
+          modelId,
+          payload: { model: modelId, messages: [{ role: 'user', content: 'Reply with exactly: OK' }], stream: true },
+          signal: undefined,
+          timeoutMs: Number.isInteger(args.timeoutMs) ? args.timeoutMs : (ch.timeoutMs || 15000),
+        })) {
+          if (chunk.type === 'text-delta') text += chunk.text
+        }
+        return { ok: true, text: `✓ ${ch.id} responded in ${Date.now() - started}ms with: ${JSON.stringify(text.slice(0, 80))}` }
+      } catch (error) {
+        return { ok: false, text: `✗ ${ch.id} failed in ${Date.now() - started}ms: ${error.message}` }
+      }
+    },
+  })
+
+  registerTool({
+    name: 'model_pool_route',
+    description:
+      '路由预演（不发请求）：给定模型/别名，按当前策略返回将被选中的 Channel 顺序及原因。 | Dry-run router (no request): for a model/alias returns the ordered channel candidates under the active strategy.',
+    parameters: { model: { type: 'string', required: true } },
+    output: { schema: { type: 'object', additionalProperties: true }, render(_a, v) { return [{ type: 'text', text: String(v.text || '') }] } },
+    async execute(args) {
+      await poolStore.ensure().catch(() => {})
+      const cfg = poolStore.load()
+      const resolved = resolveRequest(cfg, String(args.model || ''))
+      if (!resolved) return { ok: false, text: `未知模型或别名 / unknown model or alias: "${args.model}"` }
+      const state = poolAdapter ? poolAdapter.state : {}
+      const ordered = orderChannels(resolved.channels, resolved.model.id, cfg.strategy || 'priority', state, Date.now())
+      const lines = [
+        `requested : ${args.model}`,
+        `resolved  : ${resolved.model.id} (${resolved.model.displayName})${resolved.viaAlias ? ` via alias ${resolved.viaAlias}` : ''}`,
+        `strategy  : ${cfg.strategy || 'priority'}`,
+        'candidates:',
+        ...ordered.map((c, i) => `  ${i + 1}. ${c.id} (${c.providerId}) priority=${c.priority ?? 0}`),
+      ]
+      return { ok: true, text: lines.join('\n'), candidates: ordered.map((c) => c.id) }
     },
   })
 }
