@@ -1,8 +1,21 @@
 {
   "name": "ox-alpha-dsh",
-  "version": "0.2.0",
-  "description": "Model Hub for DSH Desktop — lightweight model/provider integration toolkit; Ox Alpha (stealth/ox-alpha via OpenRouter) is the first built-in definition",
-  "private": true,
+  "version": "0.3.0",
+  "description": "Model Hub for DSH Desktop — a lightweight model/provider integration toolkit. Installs Ox Alpha (stealth/ox-alpha via OpenRouter) with one command and adds custom-model, custom-provider, health-check and model-discovery tools. 一个 DSH 插件：装好 Ox Alpha，并支持自定义模型/Provider 接入、健康检查与模型发现。",
+  "type": "module",
+  "main": "./plugin/index.js",
+  "files": [
+    "plugin/",
+    "registry/",
+    "cordis.patch.yml",
+    "scripts/",
+    "README.md",
+    "LICENSE",
+    "docs/"
+  ],
+  "scripts": {
+    "check": "node scripts/validate-plugin.mjs"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -14,6 +27,16 @@
     "ox-alpha",
     "openrouter",
     "model-provider",
-    "ai-agent"
-  ]
+    "model-hub",
+    "ai-agent",
+    "ai-tools",
+    "dsh-plugin",
+    "openai-compatible",
+    "llm"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
 }

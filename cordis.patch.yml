@@ -1,0 +1,9 @@
+# Model Hub for DSH — bundle patch layer.
+# Mounts exactly ONE host entry (plugin/index.js). The dynamic-plugin variant
+# files (plugin/ox-alpha.host.js, plugin/model-hub.host.js) are NOT registered
+# here on purpose: installing this bundle AND separately defining a dynamic
+# variant of the same hub would double-apply llm-pi-ai provider patches and
+# double-register the same tools. Use one form only (bundle install preferred).
+- insert:
+    - id: model-hub
+      name: ox-alpha-dsh
