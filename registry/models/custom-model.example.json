@@ -1,0 +1,9 @@
+{
+  "provider": "openrouter",
+  "id": "moonshotai/kimi-k2",
+  "name": "Kimi K2",
+  "aliases": ["kimi"],
+  "reasoning": true,
+  "tools": true,
+  "notes": "example only — context/output left to the installed catalog; aliases create a sibling route 'openrouter-kimi' after re-running install"
+}

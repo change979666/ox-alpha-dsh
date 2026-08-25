@@ -1,0 +1,19 @@
+{
+  "name": "ox-alpha-dsh",
+  "version": "0.2.0",
+  "description": "Model Hub for DSH Desktop — lightweight model/provider integration toolkit; Ox Alpha (stealth/ox-alpha via OpenRouter) is the first built-in definition",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/change979666/ox-alpha-dsh.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "ox-alpha",
+    "openrouter",
+    "model-provider",
+    "ai-agent"
+  ]
+}

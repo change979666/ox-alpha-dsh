@@ -1,0 +1,11 @@
+{
+  "provider": "openrouter",
+  "id": "stealth/ox-alpha",
+  "name": "Ox Alpha",
+  "contextWindow": 1048576,
+  "maxTokens": 131072,
+  "input": ["text", "image"],
+  "reasoning": true,
+  "tools": true,
+  "notes": "anonymous stealth provider; free promo pricing ($0/$0 at publish time); prompts retained by the provider — keep secrets out of conversations"
+}

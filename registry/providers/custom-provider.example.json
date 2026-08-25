@@ -1,0 +1,8 @@
+{
+  "kind": "provider",
+  "id": "my-gateway",
+  "displayName": "My OpenAI-Compatible Gateway",
+  "baseUrl": "https://api.example.com/v1",
+  "api": "openai-completions",
+  "apiKeyEnv": "MY_GATEWAY_API_KEY"
+}
