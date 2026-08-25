@@ -1,130 +1,236 @@
-# Model Hub for DSH 🔌
+# ox-alpha-dsh · Model Hub for DSH
 
 **简体中文** | [English](#english)
 
-> DSH Desktop 的第三方模型与 Provider 接入工具 —— 一个插件装好 Ox Alpha，
-> 并支持自定义模型、自定义 Provider、健康检查、模型发现与一键回滚。
+> DSH Desktop 的第三方模型接入插件：一键接入 OpenRouter 上的 `stealth/ox-alpha`（Ox Alpha），
+> 并提供自定义模型、自定义 Provider、健康检查与模型发现。
 >
-> A lightweight model/provider integration toolkit for DeepSeek Harness (DSH) Desktop.
-> One plugin installs Ox Alpha — and any future model you throw at it.
+> A third-party model integration plugin for DSH Desktop: installs `stealth/ox-alpha`
+> (Ox Alpha) from OpenRouter, and adds custom-model / custom-provider support,
+> health checks and model discovery.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![Platform](https://img.shields.io/badge/platform-DSH%20Desktop-blue)](https://github.com/dataelement/dsh-desktop)
-[![No secrets](https://img.shields.io/badge/API%20keys-never%20read-brightgreen)](#-安全--security)
+[![dsh-plugin](https://img.shields.io/badge/topic-dsh--plugin-blue)](https://github.com/topics/dsh-plugin)
 
-**Install · 三步安装**：clone → 让 Agent 定义并运行插件 → 「设置 → 模型」粘贴 API Key。
-**Docs**：[架构说明](./docs/ARCHITECTURE.md) · **Issues**：[提交反馈](https://github.com/change979666/ox-alpha-dsh/issues)
+**Install 安装**：`dsh plugin --profile <profile> add github:change979666/ox-alpha-dsh`
+**Issues**：https://github.com/change979666/ox-alpha-dsh/issues
 
 ---
 
-## 这是什么 / What is this
+## 这是什么
 
-[Ox Alpha](https://openrouter.ai/stealth/ox-alpha)（`stealth/ox-alpha`）是 OpenRouter 上的匿名免费模型（1M 上下文、工具调用、推理）。DSH Desktop 内置了 OpenRouter 提供方，但目录里没有它——手动接入要研究协议、上下文参数、Reasoning 格式。
+[Ox Alpha](https://openrouter.ai/stealth/ox-alpha)（`stealth/ox-alpha`）是 OpenRouter 上的一个匿名模型（1,048,576 token 上下文，支持工具调用）。DSH Desktop 内置了 OpenRouter 提供方（llm-pi-ai 适配器），但其内置模型目录不含 Ox Alpha，手动配置需要了解协议、上下文参数与 Reasoning 格式。
 
-本项目从「Ox Alpha 安装器」升级为 **Model Hub 框架**：
+本插件做两件事：
 
-```text
-DSH Model Adapter（本插件）
-        │
-        ├── Provider
-        │      ├── OpenRouter        （内置 preset，零配置）
-        │      └── 任意 OpenAI 兼容服务（自定义：baseUrl + api + apiKeyEnv）
-        │
-        └── Model
-               ├── id          ← 真正发给 API 的 Model ID
-               ├── name        ← DSH UI 显示名（与 id 解耦，可叫"我的免费神机"）
-               ├── aliases     ← 别名 = 衍生兄弟路由，快速切换
-               ├── contextWindow / maxTokens / input(text·image)
-               ├── reasoning   ← OpenRouter 归一化 reasoning:{effort}
-               └── tools       ← 能力元数据
+1. **安装即接入 Ox Alpha**：通过 DSH 官方 settings seam 写入 `llm-pi-ai.providers.openrouter` 路由和模型定义（与「设置 → 模型」页面同一条写入路径），用户只需粘贴 API Key。
+2. **Model Hub 能力**：在 Ox Alpha 之外，支持自定义模型（id 与显示名分离）、自定义 OpenAI 兼容 Provider、模型健康检查、OpenRouter 公开目录搜索与精确回滚。
+
+架构与字段映射见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
+
+## 功能
+
+- 内置 Ox Alpha 定义（参数对照 OpenRouter 公开 API 核实）
+- 自定义 Model ID 与显示名（彻底解耦）
+- 模型别名（自动生成兄弟路由）
+- 自定义 Provider（OpenAI-Compatible / OpenAI Responses / Anthropic Messages 协议）
+- 健康检查（路由 / 密钥 / 上下文 / 视觉 / 推理状态）
+- 模型发现（搜索 OpenRouter 公开 `/models` 目录，标记免费模型）
+- 幂等安装与精确回滚（不覆盖用户已有配置）
+- 中英双语工具输出
+
+## 安装
+
+前置条件：已安装 DSH Desktop（自带 `dsh` CLI；插件依赖 harness 内置的 llm-pi-ai 适配器，无需额外依赖）。
+
+```sh
+# 从 GitHub 安装到指定 profile
+dsh plugin --profile <profile> add github:change979666/ox-alpha-dsh
+
+# 或从本地目录安装
+dsh plugin --profile <profile> add ./ox-alpha-dsh
 ```
 
-## Features 特性
+本包没有构建脚本，git 安装不需要 pnpm 的构建授权（allowBuilds）。
 
-- 🐂 **Ox Alpha 开箱即用**：内置定义已核实官方参数（ctx 1,048,576 / out 131,072）
-- 🧩 **自定义 Model ID 与显示名**：`model_import` 一条 JSON 即装；id 与 name 强制分离
-- 🏷️ **模型别名**：`aliases` 自动生成兄弟路由（如 `openrouter-kimi`），共享同一密钥
-- 🌐 **自定义 Provider**：任何 OpenAI Chat Compatibles / Responses / Anthropic Messages 服务
-- 🔍 **模型自动发现**：`model_discover` 实时搜索 OpenRouter 公开目录（免密钥），🆓 标记免费模型
-- 🩺 **健康检查**：`model_status` 报告路由/密钥/上下文/视觉/推理状态，缺什么一目了然
-- ⏪ **可回滚**：`remove` 整路由卸载 · `reset-route` 按定义重建（清掉手工导入）
-- 🔁 **幂等安装**：重复运行不产生重复配置
-- 🔑 **绝不触碰密钥**：只写引用名；Key 由你在 GUI 亲自粘贴，插件连值都读不到
-- 🌏 **中英双语**：文档与工具输出均支持切换
+另一种方式（开发者/动态插件）：仓库内的 `plugin/model-hub.host.js` 与 `plugin/ox-alpha.host.js` 是 cordis_define 动态插件形态的同一功能。**两种方式二选一，不要同时使用**——它们会修改同一个 settings 分节并注册同名工具。
 
-## 快速开始 / Quick start
+## 配置 OpenRouter
 
-1. `git clone https://github.com/change979666/ox-alpha-dsh.git`
-2. 在 DSH 会话里对 Agent 说：
-   > 用 cordis_define 把 `ox-alpha-dsh/plugin/model-hub.host.js` 定义为新插件的 code.host，然后运行
-3. **设置 → 模型 → OpenRouter 行 → 粘贴 [OpenRouter Key](https://openrouter.ai/keys)** → 保存完成
+1. 在 [openrouter.ai/keys](https://openrouter.ai/keys) 创建 API Key（`sk-or-v1-…`）。
+2. 打开 DSH Desktop → 设置 → 模型 → OpenRouter 行 → 粘贴密钥 → 保存。
 
-验证：让 Agent 调用 `model_status`，看到 `✓ openrouter ... Ox Alpha` 即就绪。
+也可以通过环境变量 `OPENROUTER_API_KEY` 提供。未配置密钥时，路由已存在但调用会失败；`model_status` 会明确提示密钥缺失。
 
-## 工具一览 / Tools
+## 使用 Ox Alpha
 
-| Tool | 作用 |
-| --- | --- |
-| `model_status` | 健康检查：路由 ✓/✗、密钥是否配置、每模型的 ctx/vision/reasoning/out |
-| `model_hub_manage` | `install`（幂等重装）· `remove <route>`（回滚卸载）· `reset-route <route>`（重建清理）· `list` |
-| `model_import` | 导入一个模型定义（JSON 字符串/对象），同 id 幂等跳过；aliases 即时物化 |
-| `model_discover` | 搜索 OpenRouter `/models` 公开目录，返回候选供 import |
+配置密钥后，在会话的模型选择器中选择 OpenRouter 下的 **Ox Alpha** 即可；Agent 会话中直接发起任务即可使用。可用 `model_status` 确认状态：
 
-## 自定义模型示例
+```text
+✓ openrouter  key=OPENROUTER_API_KEY  models:
+   · Ox Alpha <stealth/ox-alpha> ctx=1048576 vision=✓ reasoning=✓ out=131072
+```
+
+## 添加自定义模型
+
+让 Agent 调用 `model_import`，传入 JSON 定义：
 
 ```json
 {
   "provider": "openrouter",
   "id": "moonshotai/kimi-k2",
-  "name": "Kimi K2",
+  "name": "我的 Kimi",
   "aliases": ["kimi"],
   "reasoning": true,
   "tools": true
 }
 ```
 
-自定义 Provider（任何 OpenAI 兼容端点）：
+- `id`：实际发送给 API 的 Model ID
+- `name`：DSH 界面显示名称（与 id 无关，可任意命名）
+- `aliases`：可选；每个别名生成一个兄弟路由（如 `openrouter-kimi`），复用同一密钥引用
+- 其余字段：`contextWindow`、`maxTokens`、`input`（`text`/`image`）、`reasoning`（`true`/`false`/级别映射）、`compat`
+
+同 id 重复导入会跳过（幂等）。
+
+## 添加自定义 Provider
+
+任何兼容 OpenAI Chat Completions 的服务都可以接入。把 provider 定义放入覆盖目录（编辑 `plugin/index.js` 顶部的 `OVERRIDES_DIR` 常量指向该目录），然后重跑 install：
 
 ```json
-{ "kind": "provider", "id": "my-gateway",
-  "displayName": "My Gateway", "baseUrl": "https://api.example.com/v1",
-  "api": "openai-completions", "apiKeyEnv": "MY_GATEWAY_API_KEY" }
+{
+  "kind": "provider",
+  "id": "my-gateway",
+  "displayName": "My Gateway",
+  "baseUrl": "https://api.example.com/v1",
+  "api": "openai-completions",
+  "apiKeyEnv": "MY_GATEWAY_API_KEY"
+}
 ```
 
-两种方式生效：① 让 Agent 用 `model_import` 导入模型定义；② 把 JSON 放进覆盖目录并设置插件顶部 `OVERRIDES_DIR` 后重跑 install。更多示例见 [`registry/`](./registry)。
+之后用 `model_import` 向该 Provider 添加模型（`"provider": "my-gateway"`）。协议当前支持 `openai-completions`、`openai-responses`、`anthropic-messages`。
 
-## 它写了什么 / What it writes
+## 工具参考
 
-仅 `settings.yaml` 的 `llm-pi-ai.providers.*` 段（DSH 官方 provider 配置节），通过官方 settings seam 写入——与「设置 → 模型」页面完全同一条路径，即时生效、重启保留。完整字段映射见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
+| 工具 | 用途 |
+| --- | --- |
+| `model_status` | 健康检查：列出路由与模型，显示密钥是否配置、上下文/视觉/推理/最大输出 |
+| `model_hub_manage` | `install`（幂等安装）· `remove <route>`（精确移除）· `reset-route <route>`（恢复定义在位）· `list` |
+| `model_import` | 导入一个模型定义（JSON 字符串） |
+| `model_discover` | 搜索 OpenRouter 公开目录：`{ "keyword": "free", "limit": 10 }` |
 
-## 🔒 安全 & Security
+### remove / reset-route 的边界
 
-- 插件**从不读取密钥明文**：只写 `apiKeyEnv` 引用名；检查状态走 credentials 服务的布尔结果
-- 密钥存储在 DSH 本机凭据库，由你在 GUI 粘贴；不进代码、不上传、不入日志
-- `model_discover` 只访问 OpenRouter 公开端点，不携带也不发送任何用户数据
-- ⚠️ **Ox Alpha 隐私提醒**：匿名 stealth Provider，条款声明会保留 prompt/completion（当前不用于训练）。别把公司代码、`.env`、密码投喂进去；正式项目先在测试目录验证
+- 只操作本插件定义的路由与模型；非插件管理的路由会被拒绝并提示。
+- 共享路由（如 openrouter）执行 `remove` 时只移除本插件定义的模型，用户手工添加的其他模型会保留；仅当路由内只剩插件模型时才整条移除。
+- `reset-route` 只确保本插件定义的模型在位，不会删除任何已有模型。
 
-## Roadmap 路线图
+## 卸载与升级
 
-- [x] **P0** Provider/Model 解耦框架 · 自定义 id/name · Schema 校验 · 安全边界 · 双语文档
-- [x] **P1** 自定义 Provider · OpenAI Compatible · model_status · model_import · 注册表（内置+覆盖目录）· 自动发现
-- [ ] **P2** 模型测速（TTFT/tokens）· 模型推荐 · Fallback 链 · 任务路由 —— *Fallback/Router 需要 DSH 官方多模型链路支持，当前版本无法安全实现，已在 ARCHITECTURE.md 预留接口设计*
-- [ ] **P3** Cloud · Web Dashboard · 社区模型 Registry
+- 卸载插件层：`dsh plugin --profile <profile> remove ox-alpha-dsh`。注意这只移除插件本身；已写入 settings 的 provider/model 条目会保留（模型仍可用）。如需一并清理，先执行 `model_hub_manage` 的 `remove`，或手动删除设置中的对应路由。
+- 升级：更新本地目录后重新 add（或 git pull 后重启 profile）。安装是幂等的，重复执行不会产生重复配置。
 
-## Screenshots 截图
+## 权限与数据访问
 
-*TODO — 欢迎 PR 贡献 GIF：安装插件 → 粘贴密钥 → 选择 Ox Alpha → 发送任务。*
+- 写入：仅 `settings.yaml` 的 `llm-pi-ai.providers.*` 分节（DSH 官方 provider 配置），通过官方 settings seam 完成。
+- 读取：settings 同分节；凭据服务（只读布尔状态，判断密钥是否已配置，不读取值）。
+- 网络：仅访问 OpenRouter 公开 `GET /models`（无需鉴权）；不发送项目文件、对话内容、环境变量或密钥。
+- 不执行与插件功能无关的命令，不动态下载执行代码。
 
-## FAQ
+## API Key 如何处理
 
-**Q: 为什么别名是"另一个路由"？**
-DSH 同一 Provider 路由内不允许重复模型 id。别名以兄弟路由形式存在（如 `openrouter-kimi`），复用同一把密钥——这是官方机制内的安全实现。
+插件代码从不读取、存储或打印密钥明文。它只在配置中写入引用名（如 `OPENROUTER_API_KEY`），实际密钥由你在 GUI 中粘贴，保存在 DSH 本机凭据服务里。健康检查只询问"某引用是否已配置"（布尔值）。
 
-**Q: audio/video 输入呢？**
-当前 DSH 构建的输入模态只有 text/image；定义里写 audio/video 会得到明确报错。这是 Harness 层限制，不是本插件能解决的。
+## Ox Alpha 的隐私风险
 
-**Q: 和直接改 settings.yaml 有什么区别？**
-等价且更安全：走官方 seam 有 Schema 校验（写错当场报错而不是静默失效）、即时热生效、幂等合并，并且不需要你研究 pi-ai 的字段语义。
+Ox Alpha 是匿名第三方提供方。OpenRouter 的 stealth 条款说明其会保留 prompt 与 completion（当前声明不用于训练）。请不要在对话中包含公司代码、`.env`、数据库密码等敏感内容；正式项目建议先在独立测试工作区验证。
+
+## 支持的版本与已知限制
+
+- 需要 DSH Desktop（内置 llm-pi-ai 适配器的版本）。本插件在当前桌面版实测；harness 后续版本若变更 pi-ai 字段语义，以官方文档为准。
+- 已知限制：
+  - 输入模态仅支持 `text` / `image`（audio/video 取决于 harness，定义中会被拒绝并说明）
+  - Fallback / 任务路由需要官方多模型链路，暂未实现
+  - 模型定义导入仅支持 JSON（不支持 YAML）
+  - 别名以兄弟路由形式实现（同一路由内不允许重复模型 id）
+
+## 开发方式
+
+```text
+plugin/index.js            bundle 正式入口（cordis.patch.yml 注册的唯一 host）
+plugin/*.host.js           cordis_define 动态插件变体（可选，与 bundle 安装互斥）
+registry/                  内置模型/provider 定义的 JSON 事实来源与示例
+scripts/validate-plugin.mjs 自检脚本（manifest / 入口 / registry / 密钥扫描 / README 一致性）
+docs/ARCHITECTURE.md       架构与字段映射说明
+```
+
+```sh
+npm install   # 无依赖，秒级完成
+npm run check # 结构自检
+```
+
+<a id="english"></a>
+
+## English
+
+### What is this
+
+A third-party model integration plugin for DSH Desktop. It installs `stealth/ox-alpha` (Ox Alpha) — an anonymous model on OpenRouter with a 1,048,576-token context window and tool calling — through the official settings seam, and adds a small model-hub toolkit on top: custom models (wire id decoupled from display name), custom OpenAI-compatible providers, health checks, public catalog discovery and precise rollback.
+
+### Install
+
+Prerequisite: DSH Desktop (ships the `dsh` CLI; the plugin relies on the built-in llm-pi-ai adapter, no extra dependencies).
+
+```sh
+dsh plugin --profile <profile> add github:change979666/ox-alpha-dsh
+# or from a local checkout
+dsh plugin --profile <profile> add ./ox-alpha-dsh
+```
+
+The package has no build step, so no pnpm build approval is needed.
+
+Alternative (developers): `plugin/model-hub.host.js` / `plugin/ox-alpha.host.js` are the same functionality as cordis_define dynamic-plugin sources. Pick ONE form; do not use both — they patch the same settings section and register the same tool names.
+
+### Configure OpenRouter
+
+Create a key at [openrouter.ai/keys](https://openrouter.ai/keys), then in DSH Desktop open Settings → Models → the OpenRouter row and paste it. Alternatively provide `OPENROUTER_API_KEY` via the environment. Until a key is configured the route exists but calls fail; `model_status` says so explicitly.
+
+### Use Ox Alpha
+
+Pick **Ox Alpha** under OpenRouter in the model picker and start a task. Verify with `model_status`.
+
+### Custom model / custom provider / tools
+
+See the Chinese section above — the tool contracts are identical:
+
+- `model_import` with a JSON definition (`provider`, `id`, `name`, `aliases`, `reasoning`, …); `id` is what gets sent to the API, `name` is only the display label.
+- Provider definitions (`kind: "provider"` + `baseUrl` + `api` + `apiKeyEnv`) go into the overrides directory configured by `OVERRIDES_DIR` in `plugin/index.js`, then re-run install.
+- `model_status` / `model_hub_manage` / `model_discover` behave as described there.
+
+### Uninstall / upgrade
+
+`dsh plugin --profile <profile> remove ox-alpha-dsh` removes the plugin layer; settings entries stay (models keep working). Run the manage tool's `remove` first if you want the written routes cleaned too. Re-installing after an update is idempotent.
+
+### Permissions & data access
+
+Writes only the `llm-pi-ai.providers.*` section via the official settings seam; reads that section plus boolean credential status; network access is limited to OpenRouter's public unauthenticated `GET /models`. No project files, prompts, environment variables or keys are sent anywhere.
+
+### Privacy note (Ox Alpha)
+
+Ox Alpha is an anonymous third-party provider; OpenRouter's stealth terms state prompts and completions are retained (currently declared as not used for training). Keep secrets and proprietary code out of these conversations.
+
+### Supported versions & known limitations
+
+Requires a DSH Desktop build with the built-in llm-pi-ai adapter (verified against the current desktop release). Known limitations: input modalities are `text`/`image` only; fallback/task-routing needs official multi-model support (not implemented); definitions import as JSON only; aliases are implemented as sibling routes because duplicate model ids within one route are not allowed.
+
+### Development
+
+```sh
+npm install
+npm run check
+```
+
+Layout and design notes: [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 
 ## License
 
