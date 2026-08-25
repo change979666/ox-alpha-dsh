@@ -1,6 +1,6 @@
 {
   "name": "ox-alpha-dsh",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Model Hub for DSH Desktop — a lightweight model/provider integration toolkit. Installs Ox Alpha (stealth/ox-alpha via OpenRouter) with one command and adds custom-model, custom-provider, health-check and model-discovery tools. 一个 DSH 插件：装好 Ox Alpha，并支持自定义模型/Provider 接入、健康检查与模型发现。",
   "type": "module",
   "main": "./plugin/index.js",

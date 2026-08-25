@@ -125,6 +125,19 @@ dsh plugin --profile <profile> add ./ox-alpha-dsh
 - 共享路由（如 openrouter）执行 `remove` 时只移除本插件定义的模型，用户手工添加的其他模型会保留；仅当路由内只剩插件模型时才整条移除。
 - `reset-route` 只确保本插件定义的模型在位，不会删除任何已有模型。
 
+## Model Pool 模型池
+
+把同一 Provider 的多个 API Key（每个 Key 一个 **Channel**）聚合为一组统一模型。请求按策略自动选择 Channel，遇到 429 / 配额耗尽 / 超时 / 5xx 自动切换到下一个可用 Channel（有最大尝试次数与指数退避，不会请求风暴）。
+
+- 添加渠道：`model_pool_add_channel`（`apiKey` 只写入 DSH 凭据服务，配置文件与日志中永远只有引用名）
+- 查看状态：`model_pool_status`（渠道健康、用量计数、最近错误；密钥只显示引用名）
+- 列表：`model_pool_list` · 路由预演：`model_pool_route` · 单渠测活：`model_pool_test`
+- 使用：会话中直接选择 provider 为 `model-pool` 下的模型或别名
+- 策略：`priority`（默认）与 `round-robin` 已实现；`weighted` / `least-used` / `quota-aware` / `expiration-first` 的字段与排序钩子已就位，待 Provider 额度接口接入后启用
+- 池配置持久化在 DSH 主目录的 `model-hub/pool.json`（不含任何密钥），插件升级与重装不受影响
+
+English: aggregate multiple API keys ("channels") of the same provider into one unified model set with automatic failover on 429/quota/timeout/5xx, bounded attempts and exponential backoff. Keys live only in the DSH credential store behind references.
+
 ## 卸载与升级
 
 - 卸载插件层：`dsh plugin --profile <profile> remove ox-alpha-dsh`。注意这只移除插件本身；已写入 settings 的 provider/model 条目会保留（模型仍可用）。如需一并清理，先执行 `model_hub_manage` 的 `remove`，或手动删除设置中的对应路由。
