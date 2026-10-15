@@ -245,6 +245,10 @@ npm run check
 
 Layout and design notes: [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 
-## License
+## License & Attribution / 许可与来源
 
 [MIT](./LICENSE) © 2026 change979666
+
+原创代码采用 MIT 许可；再分发请保留版权与许可文本。原始仓库：https://github.com/change979666/ox-alpha-dsh 。本仓库不捆绑第三方库 / SDK / 图标 / 字体 / 截图；运行时可选地 import harness 自带的 `@deepseek-ai/dsh-llm`（由 DSH Desktop 提供），其权利归属不变。
+
+Original code, MIT-licensed; keep the copyright and license text when redistributing. Original repository: https://github.com/change979666/ox-alpha-dsh . No third-party libraries / SDKs / icons / fonts / screenshots are bundled; the optional runtime import of the harness-provided `@deepseek-ai/dsh-llm` remains under its own terms.
